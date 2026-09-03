@@ -1,0 +1,54 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# SQLite database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Test & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# RSA keys (auto-generated at runtime)
+*.pem
+*.key
+
+# uv
+.uv/
+uv.lock
