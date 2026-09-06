@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request
@@ -9,6 +10,19 @@ from app.config import settings
 from app.db.base import Base
 from app.db.session import engine
 from app.exceptions import AkamException
+
+# ── Database table bootstrap ────────────────────────────────────────────────
+# On Linux/serverless (Vercel etc.) we bypass aiosqlite entirely for schema
+# creation. We use a synchronous SQLite connection (no greenlets, no threads)
+# so there are zero async startup issues.
+if os.name != "nt":
+    try:
+        from sqlalchemy import create_engine as _sync_create_engine
+        _sync_engine = _sync_create_engine("sqlite:////tmp/akam.db")
+        Base.metadata.create_all(_sync_engine)
+        _sync_engine.dispose()
+    except Exception as _db_init_err:
+        print(f"[main] sync DB init warning: {_db_init_err}")
 from app.middleware.idempotency import IdempotencyMiddleware
 from app.middleware.logging import StructlogLoggingMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -31,12 +45,14 @@ from app.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database tables on startup (zero friction on SQLite)
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-    except Exception as e:
-        print(f"Warning: Database initialization skipped or failed during startup: {e}")
+    # Tables are created synchronously at module import time (see above).
+    # On Windows (local dev) run the async create_all as a fallback.
+    if os.name == "nt":
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        except Exception as e:
+            print(f"Warning: DB init skipped: {e}")
     yield
 
 
