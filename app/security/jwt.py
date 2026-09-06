@@ -12,17 +12,22 @@ ALGORITHM = "RS256"
 ACCESS_TTL = settings.ACCESS_TOKEN_TTL_SECONDS
 REFRESH_TTL = settings.REFRESH_TOKEN_TTL_SECONDS
 
-# Directory to hold auto-generated RSA keypair if not mounted from secret
-if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
-    KEY_DIR = Path("/tmp/secrets")
-else:
+# Always use /tmp on Linux/serverless (Vercel, Lambda), fallback to ./secrets locally (Windows)
+if os.name == "nt":  # Windows (local dev)
     KEY_DIR = Path("./secrets")
+else:                # Linux / serverless (Vercel, Railway, Lambda, etc.)
+    KEY_DIR = Path("/tmp/secrets")
 
 PRIVATE_KEY_FILE = KEY_DIR / "jwt_private.pem"
 PUBLIC_KEY_FILE = KEY_DIR / "jwt_public.pem"
 
+# Lazy-loaded keys — populated on first call, never at import time
+_PRIVATE_KEY: bytes | None = None
+_PUBLIC_KEY: bytes | None = None
 
-def _ensure_rsa_keys():
+
+def _ensure_rsa_keys() -> tuple[bytes, bytes]:
+    """Load or generate RSA keypair, storing in writable KEY_DIR."""
     if settings.JWT_PRIVATE_KEY_PATH and settings.JWT_PUBLIC_KEY_PATH:
         with open(settings.JWT_PRIVATE_KEY_PATH, "rb") as f:
             priv = f.read()
@@ -45,8 +50,11 @@ def _ensure_rsa_keys():
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
-        PRIVATE_KEY_FILE.write_bytes(priv)
-        PUBLIC_KEY_FILE.write_bytes(pub)
+        try:
+            PRIVATE_KEY_FILE.write_bytes(priv)
+            PUBLIC_KEY_FILE.write_bytes(pub)
+        except OSError:
+            pass  # Read-only filesystem — keys stay in-memory only
     else:
         priv = PRIVATE_KEY_FILE.read_bytes()
         pub = PUBLIC_KEY_FILE.read_bytes()
@@ -54,7 +62,18 @@ def _ensure_rsa_keys():
     return priv, pub
 
 
-_PRIVATE_KEY, _PUBLIC_KEY = _ensure_rsa_keys()
+def _get_private_key() -> bytes:
+    global _PRIVATE_KEY, _PUBLIC_KEY
+    if _PRIVATE_KEY is None:
+        _PRIVATE_KEY, _PUBLIC_KEY = _ensure_rsa_keys()
+    return _PRIVATE_KEY
+
+
+def _get_public_key() -> bytes:
+    global _PRIVATE_KEY, _PUBLIC_KEY
+    if _PUBLIC_KEY is None:
+        _PRIVATE_KEY, _PUBLIC_KEY = _ensure_rsa_keys()
+    return _PUBLIC_KEY
 
 # In-memory blacklist for JTI (revocation) and token generation store (for logout_all)
 _REVOKED_JTIS: dict[str, float] = {}
@@ -90,7 +109,7 @@ def create_access_token(user_id: str, device_id: str, gen: int = 0) -> str:
         "scope": "user",
         "gen": gen,
     }
-    return jwt.encode(payload, _PRIVATE_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, _get_private_key(), algorithm=ALGORITHM)
 
 
 def create_refresh_token(user_id: str, device_id: str, gen: int = 0) -> str:
@@ -104,12 +123,12 @@ def create_refresh_token(user_id: str, device_id: str, gen: int = 0) -> str:
         "scope": "refresh",
         "gen": gen,
     }
-    return jwt.encode(payload, _PRIVATE_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, _get_private_key(), algorithm=ALGORITHM)
 
 
 def verify_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, _PUBLIC_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _get_public_key(), algorithms=[ALGORITHM])
     except JWTError:
         raise UnauthorizedException(code="TOKEN_EXPIRED", message="Token is invalid or expired.")
 
