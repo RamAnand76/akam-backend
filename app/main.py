@@ -68,6 +68,14 @@ app = FastAPI(
 )
 
 
+from fastapi.responses import RedirectResponse
+
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    return RedirectResponse(url="/docs")
+
+
+
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html():
     response = get_swagger_ui_html(
