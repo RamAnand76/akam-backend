@@ -5,14 +5,22 @@ from app.config import settings
 import os
 from pathlib import Path
 
-# Resolve database URL safely for serverless environments (e.g. Vercel read-only filesystem)
-db_url = settings.DATABASE_URL
-if db_url.startswith("sqlite") and "///" in db_url:
-    db_path = db_url.split("///")[-1]
-    # If using relative path like ./akam.db or akam.db, use /tmp/akam.db on serverless
-    if not os.path.isabs(db_path) or db_path.startswith("./"):
-        if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
-            db_url = "sqlite+aiosqlite:////tmp/akam.db"
+# On Linux/serverless (Vercel, Lambda, Railway) the project root is read-only.
+# Always redirect SQLite to /tmp which is the only writable directory.
+# On Windows (local dev) use the configured DATABASE_URL as-is.
+if os.name == "nt":
+    # Local Windows development — use the configured URL unchanged
+    db_url = settings.DATABASE_URL
+else:
+    # Linux / serverless — force SQLite to /tmp regardless of DATABASE_URL
+    if settings.DATABASE_URL.startswith("sqlite"):
+        # Ensure the directory exists before SQLAlchemy tries to open the file
+        db_dir = Path("/tmp")
+        db_dir.mkdir(parents=True, exist_ok=True)
+        db_url = "sqlite+aiosqlite:////tmp/akam.db"
+    else:
+        # Non-SQLite (e.g., Postgres) — pass through as-is
+        db_url = settings.DATABASE_URL
 
 # Engine configuration (works for SQLite aiosqlite and PostgreSQL asyncpg)
 engine = create_async_engine(
