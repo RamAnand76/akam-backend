@@ -32,8 +32,11 @@ from app.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize database tables on startup (zero friction on SQLite)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        print(f"Warning: Database initialization skipped or failed during startup: {e}")
     yield
 
 

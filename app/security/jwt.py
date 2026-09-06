@@ -13,7 +13,11 @@ ACCESS_TTL = settings.ACCESS_TOKEN_TTL_SECONDS
 REFRESH_TTL = settings.REFRESH_TOKEN_TTL_SECONDS
 
 # Directory to hold auto-generated RSA keypair if not mounted from secret
-KEY_DIR = Path("./secrets")
+if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    KEY_DIR = Path("/tmp/secrets")
+else:
+    KEY_DIR = Path("./secrets")
+
 PRIVATE_KEY_FILE = KEY_DIR / "jwt_private.pem"
 PUBLIC_KEY_FILE = KEY_DIR / "jwt_public.pem"
 
