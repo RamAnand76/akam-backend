@@ -40,6 +40,8 @@ from app.routers import (
     search,
     user,
     websocket,
+    dashboard,
+    notifications,
 )
 
 
@@ -351,3 +353,5 @@ app.include_router(search.router)
 app.include_router(digest.router)
 app.include_router(user.router)
 app.include_router(websocket.router)
+app.include_router(dashboard.router)
+app.include_router(notifications.router)

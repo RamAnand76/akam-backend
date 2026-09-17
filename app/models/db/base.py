@@ -38,3 +38,14 @@ class VectorType(TypeDecorator):
         if value is not None:
             return json.loads(value)
         return None
+
+# Import all models here so that Base.metadata.create_all() works during startup
+from app.models.db.user import User  # noqa
+from app.models.db.message import Message  # noqa
+from app.models.db.cluster import Cluster, ClusterEdge, MessageClusterMembership  # noqa
+from app.models.db.event import Event  # noqa
+from app.models.db.graph import Node, Edge  # noqa
+from app.models.db.nudge import Nudge  # noqa
+from app.models.db.notification import Notification  # noqa
+from app.models.db.recommendation import Recommendation  # noqa
+
