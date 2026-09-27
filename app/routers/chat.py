@@ -407,3 +407,21 @@ async def delete_message(
         data=DeleteMessageData(deleted_count=1 + len(children), message_id=message_id),
         meta=_make_meta(request),
     )
+
+
+from fastapi import UploadFile, File
+
+@router.post("/transcribe", response_model=ApiResponse[dict[str, str]])
+async def transcribe_audio(
+    current_user: CurrentUserDep,
+    db: DbDep,
+    request: Request,
+    file: UploadFile = File(...),
+) -> ApiResponse[dict[str, str]]:
+    # Mocking implementation for frontend integration
+    return ApiResponse(
+        data={
+            "transcription": "Focus on what creates the most meaningful leverage today.",
+            "ai_response": "Here are key action items extracted from your voice note..."
+        }
+    )

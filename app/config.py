@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "RS256"
     JWT_PRIVATE_KEY_PATH: str | None = None
     JWT_PUBLIC_KEY_PATH: str | None = None
-    ACCESS_TOKEN_TTL_SECONDS: int = 3600       # 1 hour
-    REFRESH_TOKEN_TTL_SECONDS: int = 2592000    # 30 days
+    ACCESS_TOKEN_TTL_SECONDS: int = 2592000    # 30 days (extended for smooth dev/UX)
+    REFRESH_TOKEN_TTL_SECONDS: int = 7776000   # 90 days
     
     # Gemma & AI Model
     GEMMA_MODEL_NAME: str = "gemma-4"

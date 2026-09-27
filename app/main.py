@@ -40,6 +40,11 @@ from app.routers import (
     search,
     user,
     websocket,
+    dashboard,
+    notifications,
+    files,
+    feed,
+    memories,
 )
 
 
@@ -259,11 +264,11 @@ app.add_middleware(RequestIdMiddleware)
 
 # 2. Standard FAANG Envelope Error Handlers
 def _error_envelope(request: Request, status_code: int, code: str, message: str, details: list = None, field: str = None):
-    req_id = getattr(request.state, "request_id", "01J4MXYZ")
     return JSONResponse(
         status_code=status_code,
         content={
-            "status": "error",
+            "success": False,
+            "data": None,
             "error": {
                 "code": code,
                 "message": message,
@@ -271,11 +276,7 @@ def _error_envelope(request: Request, status_code: int, code: str, message: str,
                 "details": details or [],
                 "doc_url": f"https://docs.akam.app/errors/{code}",
             },
-            "meta": {
-                "request_id": req_id,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "version": "2.0.0",
-            },
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         },
     )
 
@@ -340,14 +341,20 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 # 3. Include Routers
-app.include_router(auth.router)
-app.include_router(chat.router)
-app.include_router(graph.router)
-app.include_router(clusters.router)
-app.include_router(events.router)
-app.include_router(nudges.router)
-app.include_router(briefing.router)
-app.include_router(search.router)
-app.include_router(digest.router)
-app.include_router(user.router)
-app.include_router(websocket.router)
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(chat.router, prefix="/api/v1")
+app.include_router(graph.router, prefix="/api/v1")
+app.include_router(clusters.router, prefix="/api/v1")
+app.include_router(events.router, prefix="/api/v1")
+app.include_router(nudges.router, prefix="/api/v1")
+app.include_router(briefing.router, prefix="/api/v1")
+app.include_router(search.router, prefix="/api/v1")
+app.include_router(digest.router, prefix="/api/v1")
+app.include_router(user.router, prefix="/api/v1")
+app.include_router(websocket.router, prefix="/api/v1")
+app.include_router(dashboard.router, prefix="/api/v1")
+app.include_router(notifications.router, prefix="/api/v1")
+app.include_router(files.router, prefix="/api/v1")
+app.include_router(feed.router, prefix="/api/v1")
+app.include_router(memories.router, prefix="/api/v1")
+

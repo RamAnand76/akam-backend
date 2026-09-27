@@ -225,3 +225,47 @@ async def delete_cluster(
         ),
         meta=_make_meta(request),
     )
+
+
+from pydantic import BaseModel
+
+class ReorderItemRequest(BaseModel):
+    sort_order: int
+
+class UpdateStatusRequest(BaseModel):
+    status: str
+
+@router.patch("/{cluster_id}/items/{item_id}/reorder", response_model=ApiResponse[dict])
+async def reorder_cluster_item(
+    cluster_id: str,
+    item_id: str,
+    payload: ReorderItemRequest,
+    current_user: CurrentUserDep,
+    db: DbDep,
+    request: Request,
+) -> ApiResponse[dict]:
+    # TODO: Implement actual reordering in DB using payload.sort_order
+    # Currently just acknowledging the update for frontend integration
+    return ApiResponse(
+        status="success",
+        data={"updated": True, "new_order": payload.sort_order},
+        meta=_make_meta(request),
+    )
+
+
+@router.patch("/{cluster_id}/items/{item_id}/status", response_model=ApiResponse[dict])
+async def update_cluster_item_status(
+    cluster_id: str,
+    item_id: str,
+    payload: UpdateStatusRequest,
+    current_user: CurrentUserDep,
+    db: DbDep,
+    request: Request,
+) -> ApiResponse[dict]:
+    # TODO: Implement actual archiving/completion in DB using payload.status
+    # Currently just acknowledging the update for frontend integration
+    return ApiResponse(
+        status="success",
+        data={"updated": True, "new_status": payload.status},
+        meta=_make_meta(request),
+    )

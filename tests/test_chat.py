@@ -18,7 +18,7 @@ async def test_send_and_branch_message(client: AsyncClient, auth_headers: dict):
     )
     assert resp.status_code == 201
     body = resp.json()
-    assert body["status"] == "success"
+    assert body.get("success") is True
     assert "Rahul" in body["data"]["message"]["content"]
     assert body["data"]["ai_response"]["content"] != ""
     assert len(body["data"]["ai_response"]["suggested_replies"]) > 0
