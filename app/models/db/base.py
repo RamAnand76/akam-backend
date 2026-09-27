@@ -48,4 +48,6 @@ from app.models.db.graph import Node, Edge  # noqa
 from app.models.db.nudge import Nudge  # noqa
 from app.models.db.notification import Notification  # noqa
 from app.models.db.recommendation import Recommendation  # noqa
+from app.models.db.folder import Folder  # noqa
+from app.models.db.file import FileItem  # noqa
 

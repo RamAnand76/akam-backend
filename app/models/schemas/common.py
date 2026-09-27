@@ -37,8 +37,24 @@ class ApiError(BaseModel):
     doc_url: str = "https://docs.akam.app/errors"
 
 
+from pydantic import BaseModel, Field, model_validator
+
 class ApiResponse(BaseModel, Generic[T]):
-    status: str = Field(..., description="'success' or 'error'")
+    success: bool = True
     data: T | None = None
     error: ApiError | None = None
-    meta: Meta
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+    @model_validator(mode='before')
+    @classmethod
+    def convert_legacy_args(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "status" in data:
+                data["success"] = (data.pop("status") == "success")
+            if "meta" in data:
+                meta = data.pop("meta")
+                if hasattr(meta, "timestamp"):
+                    data["timestamp"] = meta.timestamp
+                elif isinstance(meta, dict) and "timestamp" in meta:
+                    data["timestamp"] = meta["timestamp"]
+        return data

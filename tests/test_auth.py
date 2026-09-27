@@ -17,7 +17,7 @@ async def test_register_and_refresh(client: AsyncClient):
     )
     assert reg.status_code == 201
     body = reg.json()
-    assert body["status"] == "success"
+    assert body.get("success") is True
     assert "access_token" in body["data"]
     assert "refresh_token" in body["data"]
 
@@ -30,7 +30,7 @@ async def test_register_and_refresh(client: AsyncClient):
     )
     assert ref.status_code == 200
     ref_body = ref.json()
-    assert ref_body["status"] == "success"
+    assert ref_body.get("success") is True
     assert "access_token" in ref_body["data"]
 
 

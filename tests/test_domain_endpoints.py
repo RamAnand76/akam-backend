@@ -8,7 +8,7 @@ async def test_graph_endpoints(client: AsyncClient, auth_headers: dict):
     resp = await client.get("/graph", headers=auth_headers)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "success"
+    assert body.get("success") is True
     assert "nodes" in body["data"]
     assert "edges" in body["data"]
 
