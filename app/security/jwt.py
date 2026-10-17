@@ -4,7 +4,8 @@ import uuid
 from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import JWTError, jwt
+from jose import jwt
+from jose.exceptions import ExpiredSignatureError, JWTError
 from app.config import settings
 from app.exceptions import UnauthorizedException
 
@@ -129,8 +130,10 @@ def create_refresh_token(user_id: str, device_id: str, gen: int = 0) -> str:
 def verify_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, _get_public_key(), algorithms=[ALGORITHM])
+    except ExpiredSignatureError:
+        raise UnauthorizedException(code="TOKEN_EXPIRED", message="Token has expired.")
     except JWTError:
-        raise UnauthorizedException(code="TOKEN_EXPIRED", message="Token is invalid or expired.")
+        raise UnauthorizedException(code="TOKEN_INVALID", message="Token is invalid or malformed.")
 
     jti = payload.get("jti")
     if jti and is_token_revoked(jti):
