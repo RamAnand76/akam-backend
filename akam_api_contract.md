@@ -275,8 +275,8 @@ Idempotency-Key: <uuid>                 # Required on all POST (create) endpoint
 ### Required on Every Response
 ```
 X-Request-ID: <ulid>                    # Echoed request ID for tracing
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 87
+X-RateLimit-Limit: 200
+X-RateLimit-Remaining: 187
 X-RateLimit-Reset: 1720086400           # Unix epoch
 Retry-After: 60                         # Only on 429 responses
 Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
@@ -312,6 +312,10 @@ Duplicate requests with same key within 24h return the **cached response** with 
 | `UNAUTHORIZED` | 401 | Missing, invalid, or expired access token |
 | `TOKEN_EXPIRED` | 401 | Access token expired (client should refresh) |
 | `TOKEN_REVOKED` | 401 | Token explicitly revoked (force logout) |
+| `TOKEN_INVALID` | 401 | Malformed token, wrong token type, or wrong device secret |
+| `TOKEN_REUSE_DETECTED` | 401 | Rotated refresh token replayed; session revoked |
+| `OTP_INVALID` | 400 | Email OTP wrong, expired or already used |
+| `OTP_ATTEMPTS_EXCEEDED` | 429 | Too many wrong OTP guesses; request a new code |
 | `FORBIDDEN` | 403 | Valid token, resource belongs to another user |
 | `ENTITY_NOT_FOUND` | 404 | Resource ID valid format but does not exist for this user |
 | `VALIDATION_ERROR` | 422 | Pydantic validation failure — see `details` array |
@@ -329,186 +333,127 @@ Duplicate requests with same key within 24h return the **cached response** with 
 
 ---
 
-# 1. Authentication
+# 1. Authentication (email OTP)
 
-**Router**: `app/routers/auth.py`  
-**Service**: `app/services/auth_service.py`  
-**Security**: `app/security/jwt.py`
+**Router**: `app/routers/auth.py`
+**Security**: `app/security/jwt.py`, `app/security/identity.py`
+**Email**: `app/services/email_service.py` (`EMAIL_BACKEND` = `console` | `smtp` | `resend`)
 
-### JWT Specification
-- Algorithm: **RS256** (2048-bit RSA keypair, never HS256)
-- Access token TTL: **3600 seconds (1 hour)**
-- Refresh token TTL: **2592000 seconds (30 days)**
-- Refresh token rotation: enabled — each refresh invalidates old refresh token
-- Revocation: `jti` (JWT ID) stored in Redis with TTL = remaining token lifetime
-- Claims: `sub` (user_id), `jti`, `iat`, `exp`, `device_id`, `scope`
+All responses use the envelope `{ "success": bool, "data": ..., "error": ..., "timestamp": ... }`.
+Base path: `/api/v1`.
 
----
+### Token specification
+- Algorithm: **RS256**; keys come from `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` (PEM contents in env). Only in `development` an ephemeral keypair is generated when unset.
+- Access token TTL: **3600 s (1 h)**. Refresh token TTL: **2592000 s (30 d)**. `expires_in` / `refresh_expires_in` in responses are read from the same settings.
+- Claims: `sub` (user id), `jti`, `iat`, `exp`, `device_id`, `sid` (session id), `scope` (`user` | `refresh`).
+- Sessions and refresh tokens are persisted in the database (`auth_sessions`, `refresh_tokens`). One live session per user + `device_id`.
+- Each login issues a **`device_secret`** (returned once, stored hashed). It is required by `/auth/refresh`, so a stolen refresh token alone is useless.
+- Refresh **rotates**: every refresh invalidates the presented token. Replaying an already-rotated token revokes the whole session (access + refresh) and returns `TOKEN_REUSE_DETECTED`.
+- Access tokens are rejected as soon as their session is revoked (logout, logout_all, reuse detection, re-login on the same device).
 
-### `POST /auth/register`
+### `POST /auth/request-otp`
+**Auth**: none. **Rate limit**: 5 req/IP/min (in-memory), plus durable limits from the database: `OTP_REQUESTS_PER_EMAIL` (3) and `OTP_REQUESTS_PER_IP` (10) per `OTP_REQUEST_WINDOW_SECONDS` (1 h) -> `429 RATE_LIMITED`.
 
-Register a new user account.
+```json
+{ "email": "user@example.com", "device_id": "<at least 10 chars>" }
+```
+**Response `200`**: `{ "success": true, "data": { "sent": true, "expires_in": 600 } }`
+Same response whether or not the account exists. A newer code invalidates older ones. Email send failure -> `503 EMAIL_SEND_FAILED`.
+OTP: 6 digits, stored only as an HMAC, valid `OTP_TTL_SECONDS` (10 min), max `OTP_MAX_ATTEMPTS` (5) wrong guesses.
 
-**Auth**: None  
-**Idempotency**: Required (`Idempotency-Key` header)  
-**Rate limit**: 5 req/IP/min, 3 burst
+### `POST /auth/verify-otp`
+**Auth**: none. **Rate limit**: 10 req/IP/min.
 
-**Request body**:
 ```json
 {
-  "name": "Ramanand R",
+  "email": "user@example.com",
+  "code": "123456",
+  "device_id": "<at least 10 chars>",
   "language": "en",
-  "device_id": "android-uuid-string",
-  "fcm_token": "firebase-token-string",
+  "fcm_token": "optional",
   "device_platform": "android"
 }
 ```
-
-**Validation**:
-| Field | Type | Rules |
-|---|---|---|
-| `name` | string | required, 1–100 chars, strip null bytes |
-| `language` | enum | required, `en` \| `ml` |
-| `device_id` | string | required, 10–200 chars, alphanumeric + `-_` |
-| `fcm_token` | string | required, 10–500 chars, alphanumeric + `-_:` |
-| `device_platform` | enum | required, `android` \| `ios` |
-
-**Response `201`**:
+**Response `200`**:
 ```json
 {
-  "status": "success",
+  "success": true,
   "data": {
-    "user_id": "550e8400-e29b-41d4-a716-446655440000",
-    "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refresh_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user_id": "uuid",
+    "access_token": "...",
+    "refresh_token": "...",
+    "device_secret": "shown once; store in secure storage",
+    "is_new_user": true,
     "token_type": "Bearer",
     "expires_in": 3600,
     "refresh_expires_in": 2592000
   },
-  "meta": { "request_id": "...", "timestamp": "...", "version": "2.0.0" }
+  "error": null,
+  "timestamp": "..."
 }
 ```
-
-**Implementation notes**:
-- Rate limit: 3 accounts per `device_id` per 24h (Redis counter)
-- No email required for MVP — `device_id` is the identity anchor
-- User row created with `status: active`
-
----
+Users are unique by (lower-cased) email; a new user is created on first verify. Errors: `400 OTP_INVALID` (wrong, expired, used, or none requested), `429 OTP_ATTEMPTS_EXCEEDED`.
 
 ### `POST /auth/refresh`
+**Auth**: none (refresh token in body). **Rate limit**: 10 req/min per IP.
 
-Exchange a refresh token for a new access token + new refresh token.
-
-**Auth**: None (refresh token in body)  
-**Rate limit**: 10 req/user/min
-
-**Request body**:
 ```json
-{
-  "refresh_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
+{ "refresh_token": "...", "device_secret": "..." }
 ```
-
-**Response `200`**:
-```json
-{
-  "status": "success",
-  "data": {
-    "access_token": "eyJ...",
-    "refresh_token": "eyJ...",
-    "token_type": "Bearer",
-    "expires_in": 3600,
-    "refresh_expires_in": 2592000
-  },
-  "meta": { "request_id": "...", "timestamp": "...", "version": "2.0.0" }
-}
-```
-
-**Implementation notes**:
-- Old refresh token's `jti` blacklisted in Redis immediately on use
-- New `jti` generated for both new tokens
-- If old refresh token already blacklisted → `TOKEN_REVOKED` 401
-- After 5 consecutive refresh failures from same IP → block IP for 15 min
-
----
+**Response `200`**: `data` = `{ access_token, refresh_token, token_type, expires_in: 3600, refresh_expires_in: 2592000 }` (no `device_secret`; it stays the same for the session).
+Errors (401): `TOKEN_EXPIRED`, `TOKEN_INVALID` (bad token, not a refresh token, wrong `device_secret`), `TOKEN_REVOKED`, `TOKEN_REUSE_DETECTED`.
 
 ### `POST /auth/logout`
-
-Revoke current session.
-
-**Auth**: Bearer token required  
-**Rate limit**: 5 req/user/min
-
-**Request body**:
-```json
-{
-  "refresh_token": "eyJ..."
-}
-```
-
-**Response `200`**:
-```json
-{
-  "status": "success",
-  "data": { "revoked": true },
-  "meta": { "request_id": "...", "timestamp": "...", "version": "2.0.0" }
-}
-```
-
-**Implementation notes**:
-- Blacklists both access token `jti` and refresh token `jti` in Redis
-- Closes all WebSocket connections for this session via Redis pub/sub signal
-
----
+**Auth**: Bearer. **Rate limit**: 5 req/min. Body: `{ "refresh_token": "..." }`.
+Revokes the caller's current session (its access and refresh tokens). Response `data`: `{ "revoked": true }`.
 
 ### `POST /auth/logout_all`
-
-Revoke all sessions for this user. Used when device lost or account compromise suspected.
-
-**Auth**: Bearer token required  
-**Rate limit**: 2 req/user/hour
-
-**Response `200`**:
-```json
-{
-  "status": "success",
-  "data": { "sessions_revoked": 4 },
-  "meta": { "request_id": "...", "timestamp": "...", "version": "2.0.0" }
-}
-```
-
-**Implementation notes**:
-- Increments `token_generation` counter in `users` table
-- All existing JWTs for this user become invalid (generation mismatch check)
-- Closes all WebSocket connections via Redis pub/sub
-
----
+**Auth**: Bearer. **Rate limit**: 2 req/hour.
+Revokes every session and live refresh token of the user. Response `data`: `{ "sessions_revoked": <number of refresh tokens actually revoked> }`.
 
 ### `PUT /auth/device`
+**Auth**: Bearer. Body `{ "fcm_token": "...", "device_platform": "android" | "ios" }`. Response `data`: `{ "updated": true }`.
 
-Update FCM token (called on app launch if token changed).
-
-**Auth**: Bearer token required
-
-**Request body**:
-```json
-{
-  "fcm_token": "new-firebase-token",
-  "device_platform": "android"
-}
-```
-
-**Response `200`**:
-```json
-{
-  "status": "success",
-  "data": { "updated": true },
-  "meta": { "request_id": "...", "timestamp": "...", "version": "2.0.0" }
-}
-```
+### `POST /auth/register` (deprecated, disabled)
+Legacy device-only registration. Trusts `device_id` alone (account takeover), so it returns `404` unless `ENABLE_LEGACY_REGISTER=true`. Do not enable in staging/production.
 
 ---
+
+# 1b. Config & health
+
+### `GET /config/models`
+**Auth**: optional (not required). On-device model manifest from env (`MODEL_VERSION`, `MODEL_URL`, `MODEL_SHA256`, `MODEL_SIZE_BYTES`).
+**Response `200`**: `data` = `{ "version": "...", "url": "https://...", "sha256": "<64 hex, lower-case>", "size_bytes": 123 }`.
+**`404 MODEL_MANIFEST_NOT_CONFIGURED`** when the model variables are unset.
+
+### `GET /config/app`
+**Auth**: optional. **Response `200`**: `data` = `{ "min_app_version": "1.0.0", "feature_flags": { ... } }` (`MIN_APP_VERSION`, `FEATURE_FLAGS` JSON).
+
+### `GET /health`
+Liveness. `data` = `{ "status": "ok" }`.
+
+### `GET /ready`
+Readiness (runs `SELECT 1`). `200` with `{ "status": "ready" }`, or `503 NOT_READY` when the database is unreachable.
+
+---
+
+# Deprecated content endpoints
+
+`/chat/*`, `/graph/*`, `/clusters/*`, `/events/*`, `/nudges/*`, `/briefing*`, `/search`, `/digest/*`, `/files`, `/feed/*`, `/memories*`, `/dashboard/*`, `/notifications*` still work for old builds and are flagged `deprecated` in OpenAPI. Personal content now lives on the device; these will be removed. They still require an access token from the OTP flow. Sections below that mention `/auth/register`, Redis, or per-endpoint rate limits are historical; the enforced behaviour is described next.
+
+---
+
+# Configuration, database and operations
+
+- `APP_ENV` = `development` | `staging` | `production`. Staging/production fail at startup if `DATABASE_URL`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY` or `OTP_HASH_SECRET` is missing, if `EMAIL_BACKEND=console`, or if `ALLOWED_ORIGINS` is empty. `ALLOWED_ORIGINS='*'` is rejected in every environment. See `.env.example` for every variable.
+- Database: Postgres (Supabase) via `DATABASE_URL` (asyncpg). Schema is managed with Alembic: run `alembic upgrade head` on deploy; the app never creates tables.
+- Logging: structlog, JSON in staging/production; unhandled exceptions are logged (`unhandled_exception`) and returned as `500 INTERNAL_ERROR`.
+
+### Rate limiting and idempotency (as implemented)
+- Limits are per **user id** when a valid bearer token is sent, else per **client IP** (`X-Forwarded-For` first hop). Default `RATE_LIMIT_PER_MINUTE` (200); auth endpoints use the limits above. The limiter is in-memory per instance (best-effort on serverless); OTP request limits are durable in the database. `429` uses the standard error envelope with `Retry-After`.
+- `Idempotency-Key` on `POST`: cached 24 h in memory (per instance), scoped by caller (user id, else IP) and path.
+
+New error codes: `OTP_INVALID` (400), `OTP_ATTEMPTS_EXCEEDED` (429), `EMAIL_SEND_FAILED` (503), `TOKEN_INVALID` (401), `TOKEN_REUSE_DETECTED` (401), `MODEL_MANIFEST_NOT_CONFIGURED` (404), `NOT_READY` (503).
 
 ---
 

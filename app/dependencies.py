@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.exceptions import UnauthorizedException
+from app.models.db.auth import AuthSession
 from app.models.db.user import User
 from app.security.jwt import verify_token
 
@@ -26,8 +27,15 @@ async def get_current_user(
     if not user_id:
         raise UnauthorizedException(code="UNAUTHORIZED", message="Invalid token claims.")
 
-    # Attach to request state for middleware tracking
+    if payload.get("scope") != "user" or not payload.get("sid"):
+        raise UnauthorizedException(code="TOKEN_INVALID", message="Invalid token claims.")
+
+    session = await db.get(AuthSession, payload["sid"])
+    if not session or session.user_id != user_id or session.revoked_at is not None:
+        raise UnauthorizedException(code="TOKEN_REVOKED", message="Session has been revoked.")
+
     request.state.user_id = user_id
+    request.state.session_id = session.id
 
     result = await db.execute(select(User).where(User.id == user_id, User.status == "active"))
     user = result.scalar_one_or_none()

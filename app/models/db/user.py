@@ -11,7 +11,8 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     language: Mapped[str] = mapped_column(String(10), default="en", nullable=False)
-    device_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True, unique=True, index=True)
+    device_id: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)  # legacy register only
     fcm_token: Mapped[str | None] = mapped_column(String(500), nullable=True)
     device_platform: Mapped[str] = mapped_column(String(20), default="android", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)

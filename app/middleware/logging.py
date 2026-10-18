@@ -30,11 +30,11 @@ class StructlogLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.monotonic()
         request_id = getattr(request.state, "request_id", "unknown")
-        user_id = getattr(request.state, "user_id", None)
         client_version = request.headers.get("X-Client-Version", "unknown")
         device_platform = request.headers.get("X-Device-Platform", "unknown")
 
         response: Response = await call_next(request)
+        user_id = getattr(request.state, "user_id", None)  # set by the auth dependency during the request
         latency_ms = round((time.monotonic() - start_time) * 1000, 2)
 
         logger.info(

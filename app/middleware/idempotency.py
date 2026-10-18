@@ -4,6 +4,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.security.identity import request_identity
+
 # Cache stores key -> (status_code, headers, body, timestamp)
 _IDEMPOTENCY_STORE: dict[str, tuple[int, dict[str, str], bytes, float]] = {}
 TTL_SECONDS = 86400  # 24 hours
@@ -19,8 +21,8 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         if not idempotency_key:
             return await call_next(request)
 
-        user_id = getattr(request.state, "user_id", "anon")
-        cache_key = f"idempotency:{user_id}:{idempotency_key}"
+        # Scoped by caller (user id, else IP) and path so keys cannot collide across users.
+        cache_key = f"idempotency:{request_identity(request)}:{request.url.path}:{idempotency_key}"
 
         now = time.time()
         cached = _IDEMPOTENCY_STORE.get(cache_key)

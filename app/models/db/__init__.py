@@ -23,3 +23,4 @@ __all__ = [
     "Pattern",
     "RelationshipScore",
 ]
+from app.models.db.auth import AuthSession, OtpCode, RefreshToken  # noqa

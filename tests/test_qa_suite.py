@@ -2,6 +2,8 @@ import io
 import pytest
 from httpx import AsyncClient
 
+from tests.conftest import login
+
 
 # ==============================================================================
 # 1. AUTHENTICATION & SESSION LIFECYCLE QA TESTS
@@ -12,8 +14,8 @@ async def test_auth_registration_validation(client: AsyncClient):
     """QA Test: Ensure registration rejects missing mandatory fields."""
     # Missing device_id and device_platform
     resp = await client.post(
-        "/auth/register",
-        json={"name": "Incomplete User", "language": "en"},
+        "/auth/verify-otp",
+        json={"email": "incomplete@example.com"},
     )
     assert resp.status_code == 422
     body = resp.json()
@@ -267,34 +269,9 @@ async def test_chat_branch_negative_foreign_parent(client: AsyncClient, auth_hea
 @pytest.mark.asyncio
 async def test_multi_user_cluster_idor_isolation(client: AsyncClient):
     """QA Test (Security/IDOR): User B cannot view, modify, or delete User A's cluster."""
-    # Register User A
-    user_a_reg = await client.post(
-        "/auth/register",
-        json={
-            "name": "User Alpha",
-            "language": "en",
-            "device_id": "device-alpha-123",
-            "fcm_token": "fcm-token-alpha-1234",
-            "device_platform": "android",
-        },
-    )
-    assert user_a_reg.status_code == 201
-    token_a = user_a_reg.json()["data"]["access_token"]
+    token_a = (await login(client, "alpha@example.com", "device-alpha-123"))["access_token"]
     headers_a = {"Authorization": f"Bearer {token_a}"}
-
-    # Register User B
-    user_b_reg = await client.post(
-        "/auth/register",
-        json={
-            "name": "User Beta",
-            "language": "en",
-            "device_id": "device-beta-456",
-            "fcm_token": "fcm-token-beta-1234",
-            "device_platform": "ios",
-        },
-    )
-    assert user_b_reg.status_code == 201
-    token_b = user_b_reg.json()["data"]["access_token"]
+    token_b = (await login(client, "beta@example.com", "device-beta-456"))["access_token"]
     headers_b = {"Authorization": f"Bearer {token_b}"}
 
     # User A creates a cluster
