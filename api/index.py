@@ -15,6 +15,8 @@ try:
     from app.main import app  # noqa: F401
 except Exception as exc:
     err_tb = traceback.format_exc()
+    boot_err_msg = str(exc)
+    boot_err_tb = err_tb.splitlines()[-8:]
     sys.stderr.write(f"[AKAM_BOOT_ERROR] Failed to start application:\n{err_tb}\n")
     sys.stderr.flush()
 
@@ -29,11 +31,12 @@ except Exception as exc:
                         "code": "SERVER_BOOT_ERROR",
                         "message": "Akam backend failed to initialize on Vercel.",
                         "details": [
-                            str(exc),
+                            boot_err_msg,
                             "Check Vercel Project Settings -> Environment Variables.",
+                            "Ensure required variables are checked for Preview & Production environments.",
                             "Required: DATABASE_URL, OTP_HASH_SECRET, RESEND_API_KEY, etc.",
                         ],
-                        "traceback": err_tb.splitlines()[-8:],
+                        "traceback": boot_err_tb,
                     },
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                 }
