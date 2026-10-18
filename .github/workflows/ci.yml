@@ -1,0 +1,55 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [ stage, master ]
+  pull_request:
+    branches: [ stage, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: test_akam
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run database migrations against throwaway Postgres
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/test_akam
+        run: uv run alembic upgrade head
+
+      - name: Run test suite
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/test_akam
+          APP_ENV: development
+        run: uv run pytest -q

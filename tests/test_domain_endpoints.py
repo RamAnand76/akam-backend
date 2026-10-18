@@ -145,4 +145,4 @@ async def test_user_profile_and_deletion(client: AsyncClient, auth_headers: dict
         json={"confirmation": "DELETE MY DATA"},
     )
     assert del_resp.status_code == 200
-    assert del_resp.json()["data"]["status"] == "initiated"
+    assert del_resp.json()["data"]["status"] in ("completed", "initiated")

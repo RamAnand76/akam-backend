@@ -1,28 +1,14 @@
-import os
-from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+import structlog
 from app.config import settings
-from app.db.base import Base
-from app.db.session import engine
+from app.logging_config import configure_logging
 from app.exceptions import AkamException
 
-# ── Database table bootstrap ────────────────────────────────────────────────
-# On Linux/serverless (Vercel etc.) we bypass aiosqlite entirely for schema
-# creation. We use a synchronous SQLite connection (no greenlets, no threads)
-# so there are zero async startup issues.
-if os.name != "nt":
-    try:
-        from sqlalchemy import create_engine as _sync_create_engine
-        _sync_engine = _sync_create_engine("sqlite:////tmp/akam.db")
-        Base.metadata.create_all(_sync_engine)
-        _sync_engine.dispose()
-    except Exception as _db_init_err:
-        print(f"[main] sync DB init warning: {_db_init_err}")
 from app.middleware.idempotency import IdempotencyMiddleware
 from app.middleware.logging import StructlogLoggingMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -45,20 +31,14 @@ from app.routers import (
     files,
     feed,
     memories,
+    config as config_router,
+    health,
+    analytics,
+    backup,
 )
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Tables are created synchronously at module import time (see above).
-    # On Windows (local dev) run the async create_all as a fallback.
-    if os.name == "nt":
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-        except Exception as e:
-            print(f"Warning: DB init skipped: {e}")
-    yield
+configure_logging()
+logger = structlog.get_logger()
 
 
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -69,7 +49,6 @@ app = FastAPI(
     version="2.0.0",
     docs_url=None,  # Custom dark theme endpoint registered below
     redoc_url=None,
-    lifespan=lifespan,
 )
 
 
@@ -250,7 +229,7 @@ async def custom_swagger_ui_html():
 # 1. Security & Context Middleware Stack (executed bottom-to-top)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS.split(","),
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -332,6 +311,13 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "unhandled_exception",
+        exc_info=exc,
+        request_id=getattr(request.state, "request_id", None),
+        method=request.method,
+        path=request.url.path,
+    )
     return _error_envelope(
         request=request,
         status_code=500,
@@ -342,19 +328,14 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 # 3. Include Routers
 app.include_router(auth.router, prefix="/api/v1")
-app.include_router(chat.router, prefix="/api/v1")
-app.include_router(graph.router, prefix="/api/v1")
-app.include_router(clusters.router, prefix="/api/v1")
-app.include_router(events.router, prefix="/api/v1")
-app.include_router(nudges.router, prefix="/api/v1")
-app.include_router(briefing.router, prefix="/api/v1")
-app.include_router(search.router, prefix="/api/v1")
-app.include_router(digest.router, prefix="/api/v1")
+app.include_router(config_router.router, prefix="/api/v1")
+app.include_router(health.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(backup.router, prefix="/api/v1")
 app.include_router(user.router, prefix="/api/v1")
 app.include_router(websocket.router, prefix="/api/v1")
-app.include_router(dashboard.router, prefix="/api/v1")
-app.include_router(notifications.router, prefix="/api/v1")
-app.include_router(files.router, prefix="/api/v1")
-app.include_router(feed.router, prefix="/api/v1")
-app.include_router(memories.router, prefix="/api/v1")
+
+# Content now lives on the device; these stay working for old builds and are marked deprecated.
+for _r in (chat, graph, clusters, events, nudges, briefing, search, digest, dashboard, notifications, files, feed, memories):
+    app.include_router(_r.router, prefix="/api/v1", deprecated=True)
 

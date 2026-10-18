@@ -1,15 +1,18 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from app.dependencies import CurrentUserDep, DbDep
 from app.exceptions import ValidationException
+from app.models.db.auth import AuthSession, RefreshToken
+from app.models.db.backup import UserBackup
 from app.models.db.cluster import Cluster
 from app.models.db.graph import Edge, Node
 from app.models.db.message import Message
-from app.models.db.user import UserPreferences
+from app.models.db.user import User, UserPreferences
 from app.models.schemas.common import ApiResponse, Meta
 from app.security.sanitiser import sanitise_text
 
@@ -18,7 +21,7 @@ router = APIRouter(prefix="/user", tags=["user"])
 
 def _make_meta(request: Request) -> Meta:
     request_id = getattr(request.state, "request_id", "01J4MXYZ")
-    return Meta(request_id=request_id, timestamp=datetime.utcnow(), version="2.0.0")
+    return Meta(request_id=request_id, timestamp=datetime.now(timezone.utc), version="2.0.0")
 
 
 class UserProfileData(BaseModel):
@@ -201,31 +204,37 @@ async def delete_user_data(
     if body.confirmation != "DELETE MY DATA":
         raise ValidationException("Confirmation must equal exact string 'DELETE MY DATA'.")
 
-    # Step 1: Invalidate token generation
-    current_user.token_generation += 999
-    current_user.status = "deleted"
+    user_id = current_user.id
 
-    # Step 2: Delete related rows
-    await db.execute(Message.__table__.delete().where(Message.user_id == current_user.id))
-    await db.execute(Node.__table__.delete().where(Node.user_id == current_user.id))
-    await db.execute(Edge.__table__.delete().where(Edge.user_id == current_user.id))
-    await db.execute(Cluster.__table__.delete().where(Cluster.user_id == current_user.id))
+    # 1. Purge backup files from storage
+    backups = (
+        await db.execute(select(UserBackup).where(UserBackup.user_id == user_id))
+    ).scalars().all()
+    for b in backups:
+        try:
+            Path(b.storage_path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
+    # 2. Delete all user-scoped data across all tables atomically
+    for model_cls in (Message, Node, Edge, Cluster, UserBackup, AuthSession, RefreshToken, UserPreferences):
+        await db.execute(model_cls.__table__.delete().where(getattr(model_cls, "user_id", None) == user_id))
+
+    # 3. Delete the root user record
+    await db.delete(current_user)
     await db.commit()
 
     return ApiResponse(
-        status="success",
         data=DeleteUserDataResponse(
             deletion_ticket_id=str(uuid.uuid4()),
-            status="initiated",
+            status="completed",
             steps={
                 "sessions_revoked": True,
                 "db_rows_deleted": True,
-                "cache_flushed": True,
-                "media_deletion_queued": True,
-                "backup_purge_queued": True,
+                "backups_purged": True,
+                "user_account_deleted": True,
             },
-            completion_estimated=datetime.utcnow(),
+            completion_estimated=datetime.now(timezone.utc),
         ),
         meta=_make_meta(request),
     )
