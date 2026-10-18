@@ -2926,6 +2926,48 @@ REDIS_CACHE_TTL_CLUSTERS=30
 CELERY_CONCURRENCY=4
 ```
 
+# 16. Privacy-Preserving Telemetry & Encrypted Backups
+
+### 16.1 Anonymous Analytics Ingest
+- **Path:** `POST /api/v1/analytics/events`
+- **Auth:** Bearer Token required
+- **Description:** Strictly allow-listed telemetry event batching. Stored with `anon_id` only. Never linked to `user_id` or email.
+- **Request Body:**
+  ```json
+  {
+    "anon_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "app_version": "1.0.0",
+    "events": [
+      {
+        "name": "screen_view",
+        "ts": "2026-10-18T12:00:00Z",
+        "props": { "screen": "home" }
+      }
+    ]
+  }
+  ```
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "data": { "accepted": 1 },
+    "error": null,
+    "timestamp": "2026-10-18T12:00:00Z"
+  }
+  ```
+
+### 16.2 Encrypted Backups
+- **Path:** `PUT /api/v1/backup`
+  - **Headers:** `X-Backup-Version: 1`, `X-Backup-Sha256: <64-hex>`
+  - **Body:** Multipart `file` upload of opaque client-side encrypted ciphertext bytes.
+  - **Limits:** Max 50 MB, retains top 5 latest versions per user.
+- **Path:** `GET /api/v1/backup`
+  - Returns metadata for the user's latest backup.
+- **Path:** `GET /api/v1/backup/download`
+  - Downloads the raw encrypted blob (`application/octet-stream`).
+- **Path:** `DELETE /api/v1/backup`
+  - Purges all stored backups for the user account.
+
 ---
 
 *Akam API Contract v2.0 — Production Engineering Document*  

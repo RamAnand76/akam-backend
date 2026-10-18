@@ -24,3 +24,5 @@ __all__ = [
     "RelationshipScore",
 ]
 from app.models.db.auth import AuthSession, OtpCode, RefreshToken  # noqa
+from app.models.db.analytics import AnalyticsEvent  # noqa
+from app.models.db.backup import UserBackup  # noqa

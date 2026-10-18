@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -51,4 +51,6 @@ logs/
 
 # uv
 .uv/
-uv.lock
+
+# Local data & backups
+data/

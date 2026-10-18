@@ -33,6 +33,8 @@ from app.routers import (
     memories,
     config as config_router,
     health,
+    analytics,
+    backup,
 )
 
 configure_logging()
@@ -328,9 +330,12 @@ async def generic_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(config_router.router, prefix="/api/v1")
 app.include_router(health.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(backup.router, prefix="/api/v1")
 app.include_router(user.router, prefix="/api/v1")
 app.include_router(websocket.router, prefix="/api/v1")
 
 # Content now lives on the device; these stay working for old builds and are marked deprecated.
 for _r in (chat, graph, clusters, events, nudges, briefing, search, digest, dashboard, notifications, files, feed, memories):
     app.include_router(_r.router, prefix="/api/v1", deprecated=True)
+
