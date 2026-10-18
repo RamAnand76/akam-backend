@@ -16,7 +16,14 @@ logger = structlog.get_logger()
 
 
 def _pem(value: str) -> bytes:
-    return value.replace("\n", "\n").strip().encode()
+    # Support literal and escaped newlines (e.g. from single-line environment variable strings)
+    normalized = (
+        value.replace(r"\n", "\n")
+        .replace("\\n", "\n")
+        .strip()
+        .strip('"\'')
+    )
+    return normalized.encode()
 
 
 @lru_cache(maxsize=1)
